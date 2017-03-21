@@ -1,0 +1,172 @@
+---
+title: "Digit Recognition"
+author: "Neha"
+date: "12/24/2016"
+output:
+  html_document:
+   theme: flatly
+   highlight: pygments
+   toc: true
+   toc_float: true
+   css: n.css
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rpart.plot)
+library(cluster)
+library(rpart)
+library(maptree)
+library(RColorBrewer)
+library(Rtsne)
+library(class)
+library(gmodels)
+```
+
+## Introduction
+In this project we predict the handwritten digits using decision trees.The MNIST data set is used for this project. We try to reduce the dimension of the data by employing PCA and thereafter algorithm RPart to predict the correct class of the digits.
+
+```{r cars}
+digit<- read.csv("/Users/neha/Documents/DS-630-ML/pca/mnist.csv")
+nrow(digit)
+digit <- digit[1:20000,]
+# Divide data in 80:20 ratio - training:test
+samp_size <-floor(0.80* nrow(digit))
+train_ind <-sample(seq_len(nrow(digit)), size = samp_size)
+
+# Training data
+DATASET.train <- as.data.frame(digit[train_ind,])
+
+# Test Data
+DATASET.test <-  as.data.frame(digit[-train_ind,])
+```
+
+## Image Visualization
+
+```{r}
+flip <- function(matrix){
+    apply(matrix, 2, rev)
+}
+
+par(mfrow=c(3,3))
+for (i in 1:27){
+    dit <- flip(matrix(rev(as.numeric(DATASET.train[i,-c(1, 786)])), nrow = 28)) #look at one digit
+    image(dit, col = grey.colors(255))
+}
+```
+
+## Data Exploration
+
+
+```{r}
+barplot(table(DATASET.train$X5), main="Total Number of Digits (Training Set)", col=brewer.pal(10,"Set1"),
+    xlab="Numbers", ylab = "Frequency of Numbers")
+```
+
+```{r}
+barplot(table(DATASET.test$X5), main="Total Number of Digits (Training Set)", col=brewer.pal(10,"Set1"),
+    xlab="Numbers", ylab = "Frequency of Numbers")
+```
+
+```{r}
+tsne <- Rtsne(DATASET.train[1:300,-1], dims = 2, perplexity=20, verbose=TRUE, max_iter = 500)
+colors = rainbow(length(unique(DATASET.train$X5)))
+names(colors) = unique(DATASET.train$X5)
+plot(tsne$Y, t='n', main="tsne")
+text(tsne$Y, labels=DATASET.train$X5, col=colors[DATASET.train$X5])
+
+```
+
+
+
+
+
+## Principal Component Analysis
+```{r}
+features<-digit[,-1]
+pca<-princomp(features)
+std_dev <- pca[1:260]$sdev
+pr_var <- std_dev^2
+prop_varex <- pr_var/sum(pr_var)
+```
+
+As seen in the plot, nearly first 260 components explains most variation in the data.
+so we took first 260 components.
+```{r}
+plot(cumsum(prop_varex[1:260]), xlab = "Principal Component",
+     ylab = "Cumulative Proportion of Variance Explained",
+     type = "b")
+```
+
+New data after employing PCA
+```{r}
+new_digit<-data.frame(number = digit[, "X5"], pca$scores)
+new_digit<- new_digit[,1:260]
+samp_size <-floor(0.80* nrow(new_digit))
+train_ind <-sample(seq_len(nrow(new_digit)), size = samp_size)
+train_set <- new_digit[train_ind,]
+test_set  <-new_digit[-train_ind,]
+```
+
+
+### RPart
+```{r}
+pc <- proc.time()
+model.rpart <- rpart(train_set$number ~ .,method = "class", data = train_set)
+proc.time() - pc
+printcp(model.rpart)
+
+```
+
+## Accuracy - RPart
+```{r}
+prediction.rpart <- predict(model.rpart, newdata = test_set, type = "class")
+table(`Actual Class` = test_set$number, `Predicted Class` = prediction.rpart)
+
+error.rate.rpart <- sum(test_set$number != prediction.rpart)/nrow(test_set)
+accuracy <- round((1 - error.rate.rpart) *100,2)
+accuracy
+```
+
+## Tree Visualizations
+```{r}
+heat.tree <- function(tree, low.is.green=FALSE, ...) { # dots args passed to prp
+y <- model.rpart$frame$yval
+if(low.is.green)
+y <- -y
+max <- max(y)
+min <- min(y)
+cols <- rainbow(99, end=.36)[
+ifelse(y > y[1], (y-y[1]) * (99-50) / (max-y[1]) + 50,
+(y-min) * (50-1) / (y[1]-min) + 1)]
+prp(model.rpart, branch.col=brewer.pal(10,"Set3"), box.col=brewer.pal(10,"Set3"), ...)
+}
+
+heat.tree(model.rpart, type=4, varlen=0, faclen=0, fallen.leaves=TRUE)
+```
+
+
+```{r}
+draw.tree(model.rpart, cex = 0.5, nodeinfo = TRUE, col = gray(0:8/8))
+```
+
+```{r}
+prp(model.rpart, extra=6, main="Classification (RPART). Tree of Handwritten Digit Recognition ",
+box.col=brewer.pal(10,"Set3")[model.rpart$frame$yval])
+```
+
+##kNN
+```{r}
+model.knn <- knn(train = train_set, test = test_set,cl = train_set$number, k=50)
+#CrossTable(x = test_set$number, y = model.knn, prop.chisq = FALSE)
+table(`Actual Class` = test_set$number, `Predicted Class` = model.knn)
+error.rate.knn <- sum(test_set$number != model.knn)/nrow(test_set)
+accuracy_knn <- round((1 - error.rate.knn) *100,2)
+accuracy_knn
+```
+
+## Conclusion
+The model RPart performs moderately, as the accuracy results varies between 62%-70%.kNN peforms well, it's accuracy results vary between 90-95%.
+Going furhter, Random forests can improve predictive accuracy by generating a large number of bootstrapped trees (based on random samples of variables), classifying a case using each tree in this new "forest", and deciding a final predicted outcome by combining the results across all of the trees. 
+
+
